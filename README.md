@@ -12,7 +12,7 @@ The data used had been exported to excel sheets rather than extracted directly f
 
 In lieu of expected demand, which would allow for the use of the industry standard formulas, the customer determined that a six months average was to be applied. Throughout the development of this project it has been found that such method is not accurate, let alone for long range forecasts, demanding considerable manual input based on the customer's expertise. In the light of that find, time series forecasting models are being developed. However, the historical sales data for the products for which there is a lack of expected demand is sparse. Those products are also a majority and using time series forecasting on each one of them would be time consuming. In the interest of delivering a usable product in a timely manner, preliminary models have been built to forecast products grouped into channels. The next step is to fill in the gaps to allow for time series forecasting for each individual product.
 
-### What were the tools used?
+### Tools used
 
 - Python: Pandas, Numpy, Glob, Os, Time, Calendar, Math, Datetime.
 
