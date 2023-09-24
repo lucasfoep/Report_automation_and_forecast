@@ -14,20 +14,20 @@ In lieu of expected demand, which would allow for the use of the industry standa
 
 ### What were the tools used?
 
-- Python
--- Pandas
--- Numpy
--- Glob
--- Os
--- Time
--- Calendar
--- Math
--- Datetime
+- Python:
+  Pandas
+  Numpy
+  Glob
+  Os
+  Time
+  Calendar
+  Math
+  Datetime
 
 - R
--- ggplot2
--- stats
--- forecast
--- lmtest
--- fUnitRoots
+  ggplot2
+  stats
+  forecast
+  lmtest
+  fUnitRoots
 
