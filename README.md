@@ -6,7 +6,7 @@ This project automates a forecasting report for the demand of over 700 customer 
 
 ### Challenges
 
-The data used had been exported to excel sheets rather than extracted directly from the database. The excel sheets reports used as input stored data either on a monthly or weekly basis, requiring extensive use of the datetime library as well as finding ways of combining different reports. On a weekly level, split weeks had to be considered so as to allocate values on the correct months. Products' expected demand were grouped by product rather than kept discriminated by customer, and there is yet to be implemented a mechanism to do re-distribute it by customer.
+The data used had been exported to excel sheets rather than extracted directly from the database. The excel sheets reports used as input stored data either on a monthly or weekly basis, requiring extensive use of the datetime library as well as finding ways of combining different reports. On a weekly level, split weeks had to be considered so as to allocate values on the correct months. Products' expected demand were grouped by product rather than kept discriminated by customer, and there is yet to be implemented a mechanism to re-distribute it by customer.
 
 ### Improvements being made
 
