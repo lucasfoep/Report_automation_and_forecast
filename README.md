@@ -1,6 +1,6 @@
 # Automated forecast
 
-### What does it do?
+### What it does
 
 This project automates a forecasting report for the demand of over 700 customer products by reading over 30 excel files, cleaning the data, merging dataframes, applying formulas that are standard practice in their industry and outputting a few summarized reports. The customer has access to a service that supplies them with how much their customers plan on manufacturing of each one of their products in the following months. The first step was to calculate a "fill rate", i.e their customers' historical average percentage of the amount planned on being manufactured per product that actually became firm orders. The subsequent step was to merge spreadsheets containing information such as orders booked for the month, planned orders and historical sales with the calculated fill rates, to then apply the formulas to forecast demand for the customer's products.
 
