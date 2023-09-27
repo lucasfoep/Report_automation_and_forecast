@@ -18,3 +18,7 @@ In lieu of expected demand, which would allow for the use of the industry standa
 
 - R: ggplot2, stats, forecast, lmtest, fUnitRoots.
 
+### PS
+
+In the interest of maintaining customer's confidentiality the script was published as a python file rather than a jupyter notebook.
+
