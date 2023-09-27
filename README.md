@@ -20,5 +20,5 @@ In lieu of expected demand, which would allow for the use of the industry standa
 
 ### PS
 
-In the interest of maintaining customer's confidentiality the script was published as a python file rather than a jupyter notebook.
+In the interest of maintaining customer's confidentiality the script was published as a python file rather than a jupyter notebook. On a Lenovo Legion pro 7, 13th i9 2.2GHz, 32 GB RAM, nvidia geforce rtx 4080 Fill_rates.py runs in about 30s (once a month); Forecast.py runs in about 20s (weekly) and Channels_forecast.R runs in about 10s (weekly).
 
