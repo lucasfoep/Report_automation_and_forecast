@@ -3,12 +3,12 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
-from math import ceil
 import calendar
 import glob
 import os
 from pandas.tseries.offsets import DateOffset
 import time
+from openpyxl import load_workbook
 
 # Allows all rows from dataframes to be seen.
 pd.set_option("display.max_rows", None)
@@ -134,8 +134,14 @@ def pricingfunc(df, channels, pns, target_col):
 
 
 def mainpricingfunc(df, target_col):
-    '''Uses last month sales to calculate a weighed mean price. If there are no sales for a given part number for last month
-    it calculates a simple mean price for the part numbers for a given channel. The main function calls the sub functions.'''
+    ''' The two main sheets, files 0 and 1, need to be merged. However, products
+    are aggregated on file 0 and discriminated by customer on file 1. Products in
+    file 1 must be aggregated to allow for the merge, but prices for one same product
+    might vary per customer. This function uses last six months sales (summed into
+    the target_col) to calculate a weighed average price accross all customers.
+    If there are no sales for a given part number for last month it calculates a
+    simple mean price for the part numbers. This is all done for each individual
+    channel. The main function calls the sub functions.'''
     
     # Stores list of unique channels and part numbers for each dataframe
     channels = df['Channel'].unique().tolist()
@@ -229,26 +235,6 @@ def merge_dfs(list_1, list_2, cols_to_merge_on):
     return return_list
 
 
-def remove_outliers(col):
-    '''Calculates lower and upper limit fora given column to aid in removing outliers'''
-    
-    # Calculates third and first quartile for a given column
-    q3, q1 = np.percentile(col, [75, 25])
-    
-    # Calculates the interquartile range for said column
-    IQR = q3 - q1
-    
-    # Calculates the lower and upper limits for said column
-    ll = q1 - 1.5 * IQR
-    ul = q3 + 1.5 * IQR
-
-    # Replaces values based on upper and lower limits
-    col = np.where(col < ll, 0, np.where(col > ul, 1, col))
-    
-    # Returns column
-    return pd.Series(col)
-
-
 def calcproportion(temp_df2, target_col, target_col_sum, col_list):
     '''Calculates proportions and re-distributes Bookings and EDI. See main function description to understand how.'''
     
@@ -264,8 +250,8 @@ def calcproportion(temp_df2, target_col, target_col_sum, col_list):
     # If sum is zero, meaning no units sold for a given part number in a given channel
     else:
         
-        # Columns receive the product between themselves and zero
-        temp_df2[col_list] = temp_df2[col_list] * 0
+        # Columns receive their average
+        temp_df2[col_list] = temp_df2[col_list].mean()
         
     # Returns temp_df2
     return temp_df2
@@ -309,76 +295,41 @@ def proportionfunc(df, channels, pns, target_col, col_list):
 
 
 def mainproportionfunc(df, target_col, col_list):
-    '''Uses last month units sold to calculate proportions and re-distribute expected orders for a given part number amongst
+    '''Uses last six months units sold to calculate proportions and re-distribute expected orders for a given part number amongst
     customers. The main function calls the sub functions.'''
     
     # Stores list of unique channels and part numbers for each dataframe
     channels = df['Channel'].unique().tolist()
     pns = df['Part#'].unique().tolist()
     
-    # Calls pricing function to return an edited dataframe
+    # Calls function to return an edited dataframe
     df_list = proportionfunc(df, channels, pns, target_col, col_list)
     
     # Returns df_list
     return df_list
 
 
-def forecast_col_name(arange, astring, starting_date, df):
-    '''Returns a dataframe with new columns, a weekly date_list and a monthly date_list'''
+def forecast_col_name(df, date_list, astring):
+    '''Returns a dataframe with new columns'''
     
-    # Creates empty lists
-    date_list = []
-    date_list_2 = []
+    # For each date in the date list
+    for adate in date_list:
+        
+        # Creates and stores a string to be used as a name for a given column
+        strvar = astring + str(adate)[:-9]
 
-    # Iterates the range passed
-    for x in range(arange + 1): # Adds one to account for the first week
-    
-        # If on first iteration
-        if x == 0:
-
-            # Creates and stores a string to be used as a name for the first column
-            strvar = astring + str(starting_date)[:-9]
-            
-            # Adds date to weekly date list
-            date_list.append(starting_date)
-            
-            # Adds date to monthly date list
-            date_list_2.append(starting_date)
-            
-            # Creates column and fills it with zeros
-            df[strvar] = 0
-
-        # If on any other iteration
-        else:
-
-            # Computes days or months to add based on the iteration
-            days_to_add = (x * 7)
-            months_to_add = (x * 1)
-
-            # Creates a date and formats it as a string
-            date = starting_date + timedelta(days = days_to_add)
-            date_str = str(date)[:-9]
-            date_2 = starting_date + relativedelta(months = + months_to_add)
-
-            # Concatenates string passed and string date to build name of a given column
-            strvar = astring + date_str
-            
-            # Adds date to their respective date lists
-            date_list.append(date)
-            date_list_2.append(date_2)
-
-            # Creates column and fills it with zeros
-            df[strvar] = 0
-            
-    # Returns edited dataframe and date lists
-    return df, date_list, date_list_2
+        # Creates column and fills it with zeros
+        df[strvar] = 0
+        
+    # Returns edited dataframe
+    return df
 
 
-def same_month_days(date):
+def same_month_days(adate):
     '''Calculates how many dates in between two given weeks belong to the month at the beginning of first week'''
     
     # Formats it as string
-    date_string = str(date)[:-9]
+    date_string = str(adate)[:-9]
     
     # Splits string into year, month and day
     year, month, day = map(int, date_string.split("-"))
@@ -388,7 +339,7 @@ def same_month_days(date):
 
     # If the difference between the number of days in a given month and the day of a given week is equal to or greater than
     # five
-    if num_days - date.day + 1 >= 5:
+    if num_days - adate.day + 1 >= 5:
 
         # Return five
         return 5
@@ -397,7 +348,7 @@ def same_month_days(date):
     else:
 
         # Returns the difference between the number of days of said month and the day of given week
-        return num_days - date.day + 1
+        return num_days - adate.day + 1
     
     
 def num_of_weeks(adate):
@@ -420,28 +371,24 @@ def num_of_weeks(adate):
 def fill_rate_choice(date0, date1, fill_rate_list):
     '''Returns correct fill rate to be used'''
     
-    # Keeps only months
-    date0 = date0.month
-    date1 = date1.month
-    
     # Decides which fill rate to return based on the difference between the two months
-    if date1 - date0 == 0:
+    if relativedelta(date0.replace(day=1), date1.replace(day=1)).months == 0:
         
         return fill_rate_list[0]
     
-    elif date1 - date0 == 1:
+    elif relativedelta(date0.replace(day=1), date1.replace(day=1)).months == 1:
         
         return fill_rate_list[1]
     
-    elif date1 - date0 == 2:
+    elif relativedelta(date0.replace(day=1), date1.replace(day=1)).months == 2:
         
         return fill_rate_list[2]
     
-    elif date1 - date0 == 3:
+    elif relativedelta(date0.replace(day=1), date1.replace(day=1)).months == 3:
         
         return fill_rate_list[3]
     
-    elif date1 - date0 == 4:
+    elif relativedelta(date0.replace(day=1), date1.replace(day=1)).months == 4:
         
         return fill_rate_list[4]
     
@@ -509,59 +456,192 @@ def frconversion(frchoice):
         
         return 4
     
-    else:
+    elif frchoice == '+5':
         
         return 5
+    
+    else:
+        
+        return 10
 
 
-def forecastfunc(df, fill_rate_options, date_list, fill_rate_choice, fill_rate_period, frconversion):
+def conditionsandchoices(frconversion, fill_rate_period, frchoice, bookings, edi, ihs_forecast, average, ratio, fill_rate,
+                         part_nums):
+    '''Creates conditions and choices for np.select and returns it'''
+    
+    # If the fill rate period entered matches the current fill rate choice the function incorporates averages on the forecast
+    if frconversion(fill_rate_period) <= frconversion(frchoice):
+    
+        # Stores conditions
+        conditions = [bookings != 0,
+                     (edi != 0) & (fill_rate != 0),
+                     (edi != 0) & (fill_rate == 0), # If There is EDI but Fill Rate is zero, this is a new part number without enough data for a fill rate, therefore use an average fill rate of .85
+                     (part_nums != '807806R') & (part_nums != '807807R') & (part_nums != '807854R') & (part_nums != '807865R') & (part_nums != '807311R') & (part_nums != '808052R') & (part_nums != '808062R') & (part_nums != '808063R') & (part_nums != '808153R') & (part_nums != '808176') & (part_nums != '807377R') & (part_nums != '807943') & (part_nums != '806997R') & (part_nums != '808077') & (ihs_forecast != 0),
+                     (part_nums != '807806R') & (part_nums != '807807R') & (part_nums != '807854R') & (part_nums != '807865R') & (part_nums != '807311R') & (part_nums != '808052R') & (part_nums != '808062R') & (part_nums != '808063R') & (part_nums != '808153R') & (part_nums != '808176') & (part_nums != '807377R') & (part_nums != '807943') & (part_nums != '806997R') & (part_nums != '808077') & (average != 0)]
+
+        # Stores choices
+        choices = [bookings * ratio,
+                  edi * ratio * fill_rate,
+                  edi * ratio * .85,
+                  ihs_forecast * ratio,
+                  average * ratio]
+        
+        # Stores choices for following week
+        next_choices = [bookings * (1 - ratio),
+                        edi * (1 - ratio) * fill_rate,
+                        edi * (1 - ratio) * .85,
+                        ihs_forecast * (1 - ratio),
+                        average * (1 - ratio)]
+        
+    # Otherwise, it doesn't
+    else:
+        
+        # Stores conditions
+        conditions = [bookings != 0,
+                     (edi != 0) & (fill_rate != 0),
+                     (edi != 0) & (fill_rate == 0)]
+
+        # Stores choices
+        choices = [bookings * ratio,
+                  edi * ratio * fill_rate,
+                  edi * ratio * .85]
+        
+        # Stores choices for following week in case there is any remaining forecast
+        # i.e forecast for current week includes days for following month
+        next_choices = [bookings * (1 - ratio),
+                        edi * (1 - ratio) * fill_rate,
+                        edi * (1 - ratio) * .85]
+
+    # Returns conditions and choices for np.select
+    return conditions, choices, next_choices
+
+
+def forecastfunc(df, fill_rate_options, date_list, fill_rate_choice, fill_rate_period, frconversion, conditionsandchoices):
     '''Calculates units and sales forecast and returns updated dataframe'''
 
+    # Stores part number column in a variable, so that it is more legible
+
+    part_nums = df['Part#']
+    
     # For each date in the date list
     for adate in date_list:
-
-        # Stores fill rate chosen by function. Second date_list varies
-        frchoice = fill_rate_choice(date_list[0], adate, fill_rate_options)
-
-        # Stores columns
-        bookings = df['Units Booked ' + str(adate)[:-9]]
-        edi = df['EDI Units ' + str(adate)[:-9]]
-        fill_rate = df[frchoice]
-        average = df['WeeklySixMonthsAvg ' + str(adate)[:-9]]
-        ratio = df['WeeklyRatio ' + str(adate)[:-9]]
-        units_forecast = 'Units Forecast ' + str(adate)[:-9]
-        sales_forecast = 'Sales Forecast ' + str(adate)[:-9]
-
-        # If the fill rate period entered matches the current fill rate choice the function incorporates averages on the forecast
-        if frconversion(fill_rate_period) <= frconversion(frchoice):
         
-            # Stores conditions
-            conditions = [bookings != 0,
-                         edi != 0,
-                         average != 0]
+        try:
+        
+            # Stores fill rate chosen by function. Second date_list varies
+            frchoice = fill_rate_choice(adate, date_list[0], fill_rate_options)
 
-            # Stores choices
-            choices = [bookings * ratio,
-                      edi * fill_rate * ratio,
-                      average * ratio]
+            # Stores columns
+            bookings = df['Units Booked ' + str(adate)[:-9]]
+            edi = df['EDI Units ' + str(adate)[:-9]]
+            fill_rate = df[frchoice]
+            average = df['WeeklySixMonthsAvg ' + str(adate)[:-9]]
+            ratio = df['WeeklyRatio ' + str(adate)[:-9]]
+            units_forecast = 'Units Forecast ' + str(adate)[:-9]
+            next_date = adate + DateOffset(weeks = 1)
+            next_units_forecast = 'Units Forecast ' + str(next_date)[:-9]
+            sales_forecast = 'Sales Forecast ' + str(adate)[:-9]
+            ihs_forecast = df['IHS ' + str(adate)[:-9]]
+
+            # Calls function to receive conditions and choices for np.select
+            conditions, choices, next_choices = conditionsandchoices(frconversion,
+                                                                     fill_rate_period,
+                                                                     frchoice, bookings,
+                                                                     edi, ihs_forecast,
+                                                                     average,
+                                                                     ratio,
+                                                                     fill_rate,
+                                                                     part_nums)
+
+            # If next week is still within the forecasting range
+            if next_date in date_list:
+
+                # Assigns remaining of the week to next week due to days belonging to next month
+                df[next_units_forecast] = np.select(conditions, next_choices) # Receives units forecast
+
+            # Units forecast receives itself(in case it receieved a remainder from the previous week) plus forecast
+            df[units_forecast] += np.select(conditions, choices) # Receives units forecast
+
+
+            # After trimming the units forecasts, it calculates the sales forecasts
+            df[sales_forecast] = df[units_forecast] * df['Price'] # Receives sales forecast
             
-        # Otherwise, it doesn't
-        else:
+        except KeyError:
             
-            # Stores conditions
-            conditions = [bookings != 0,
-                         edi != 0]
-
-            # Stores choices
-            choices = [bookings * ratio,
-                      edi * fill_rate * ratio]
-
-        # Forecast
-        df[units_forecast] = np.select(conditions, choices) # Receives units forecast
-        df[sales_forecast] = df[units_forecast] * df['Price'] # Receives sales forecast
+            print('KeyError')
         
     # Returns the updated dataframe
     return df
+
+
+def vlookup(df1, df1_col1, df1_col2, df2, df2_col1, df2_col2):
+    '''Looks up values from df1_col1 on df2_col1 and stores values from df2_col2 on df1_col2 when there is a match'''
+
+    # Creates a list to store dataframes
+    df1_list = []
+
+    # Stores unique values from df1
+    unique_df1_vals = df1[df1_col1].unique().tolist()
+
+    # For each unique value
+    for unique_val in unique_df1_vals:
+
+        # Creates a temporary df1 with only one of the unique values
+        temp_df1 = df1[df1[df1_col1] == unique_val]
+
+        # Creates a temporary df2 for this given unique value
+        temp_df2 = df2[df2[df2_col1] == unique_val]
+
+        # Creates a record of how many rows there are for a given unique value on temp_df2
+        records = len(temp_df2[df2_col2])
+
+        # If df2_col2 is not empty
+        if records != 0:
+
+            # Stores value for all occurrences of given unique value in temp_df1
+            temp_df1[df1_col2] = temp_df2[df2_col2].values[0]
+
+        # Stores temp_df1 in a list
+        df1_list.append(temp_df1)
+        
+    # Creates an empty dataframe in which to store partial dataframes from the df1_list
+    df1 = pd.DataFrame()
+
+    # For each dataframe in df1_list
+    for partial_df1 in df1_list:
+
+        # Concatenates a partial dataframe with df1
+        df1 = pd.concat([partial_df1, df1], ignore_index = True)
+    
+    # Returns list of partial dataframes
+    return df1
+
+
+def selections(channel):
+    '''Tkaes input for fill rate period variable, for the forecast function'''
+    
+    # Creates a counter
+    counter = 0
+    
+    # Takes input from user
+    fill_rate_period_entry = input(f'{channel}: ').lower().capitalize()
+    
+    # Forces loop until user enters a valid selection, updating counter to one.
+    while counter == 0:
+
+        # If entry is valid, update counter
+        if fill_rate_period_entry in ('Current', '+1', '+2', '+3', '+4', '+5'):
+            
+            counter += 1
+            
+        # Otherwise, keep asking for valid input
+        else:
+            
+            print('Your selection is not valid. Please make a valid selection.')
+            fill_rate_period_entry = input(f'{channel}: ').lower().capitalize()
+            
+    # Return input
+    return fill_rate_period_entry
 
 
 # Gets current work directory
@@ -649,7 +729,7 @@ sunits.rename(columns={sunits.columns[0]: 'Channel',
                       sunits.columns[1]: 'Part#'},
               inplace = True)
 
-# Reads value from cel
+# Get's year from file name
 starting_year = filenames[1:][0][-22:-18]
 
 # Stores date
@@ -658,9 +738,6 @@ starting_date = pd.to_datetime(starting_year, format = '%Y')
 # Calls function to edit dataframes
 sunits = column_date_name_2(sunits, 'Units', starting_date)
 sdollars = column_date_name_2(sdollars, 'Sales', starting_date)
-
-# Creates a column to store prices chosen between list and contract prices
-sdollars['Price'] = 0
 
 # Creates sets of conditions
 inter_conditions = (sdollars['Channel'] == 'ZZZ Unclas')|(sdollars['Channel'] == 'Internatio')
@@ -677,28 +754,17 @@ sunits['Channel'] = np.where(inter_conditions, 'Intercompany/Internatio', sunits
 sunits['Channel'] = np.where(am_conditions, 'Aftermarket', sunits['Channel'])
 sunits['Channel'] = np.where(sunits['Channel'] == 'SLP Intern', 'OE MEXICO', sunits['Channel'])
 
-# Creates and stores a series of conditions for both list and contract prices
-list_conditions = (sdollars['Channel'] == 'OE')|(sdollars['Channel'] == 'OE MEXICO')|(sdollars['Channel'] == 'OES')|(sdollars['Channel'] == 'OES MEXICO')
-contract_conditions = (sdollars['Channel'] == 'Aftermarket')|(sdollars['Channel'] == 'Rings.300')|(sdollars['Channel'] == 'Intercompany/Internatio')
-
-# If conditions are met, price column receives list price
-sdollars['Price'] = np.where(list_conditions, sdollars['List Price'], sdollars['Price'])
-
-# If conditions are met, price column receives contract price
-sdollars['Price'] = np.where(contract_conditions, sdollars['Contract Price'], sdollars['Price'])
+# Renames Contract Price column as Price
+sdollars.rename(columns={'Contract Price': 'Price'}, inplace=True)
 
 # Sets conditions for when price is still zero
 zero_price_list_conditions = (sdollars['Price'] == 0) & (sdollars['List Price'] != 0)
-zero_price_contract_conditions = (sdollars['Price'] == 0) & (sdollars['Contract Price'] != 0)
 
 # If price is still zero, price column receives List price
 sdollars['Price'] = np.where(zero_price_list_conditions, sdollars['List Price'], sdollars['Price'])
 
-# If price is still zero, price column receives contract price
-sdollars['Price'] = np.where(zero_price_contract_conditions, sdollars['Contract Price'], sdollars['Price'])
-
-# Dropping old price columns
-sdollars.drop(columns = ['List Price', 'Contract Price'], inplace = True)
+# Dropping list price column
+sdollars.drop(columns = ['List Price'], inplace = True)
 
 # Getting list of unique channels
 unique_channels = sdollars['Channel'].unique().tolist()
@@ -756,7 +822,7 @@ for df in df_list:
 # Replacing NaNs with zeros
 sdollars.fillna(0, inplace = True)
 
-# Creates an empty list to store columns to be dropped
+# Creates a list to store columns to be dropped
 to_drop = ['SixMonthsSum']
 
 # For each column in the list of columns for the dataframe
@@ -807,13 +873,7 @@ cols_to_merge_on = [sdollars_by_channel_list[0].columns[0], sdollars_by_channel_
 sreport_list = merge_dfs(sunits_by_channel_list, sdollars_by_channel_list, cols_to_merge_on)
 
 # Imports spreadsheet into dataframe.
-frates = pd.read_excel(filenames[2], engine='openpyxl', usecols='B:H')
-
-# Iterates all columns except for the first one
-for col in range(1, len(frates.columns)):
-
-    # Applies function to column
-    frates[frates.columns[col]] = remove_outliers(frates[frates.columns[col]])
+frates = pd.read_excel(filenames[3], engine='openpyxl', usecols='B:H')
     
 # Creating a list of repeated dataframes to be able to re-utilize merge_dfs function
 fill_rate_list = []
@@ -908,27 +968,62 @@ final_report.fillna(0, inplace=True)
 final_report.sort_values(by = [final_report.columns[0], final_report.columns[1]], ignore_index = True,
                         inplace = True)
 
-# Assuming this is run on a Monday, otherwise starting date might need adjustments to make sure it is a Monday date.
-# Gets starting date from file name
-starting_date = pd.to_datetime(filenames[0][-45:][:8])
+# Loads workbook
+wb = load_workbook(filename = filenames[0], data_only = True, read_only = True)
 
-# Adds six months to it to find ending date
-ending_date = starting_date + relativedelta(months = + 6)
+# Stores sheet
+ws = wb['ProjectionsPlus']
 
-# Calculates the number of days in between the two dates
-days = ((ending_date - starting_date)).days
+# Creates and stores temporary dates
+temp_date = pd.to_datetime('01/01/21')
+max_temp_date = pd.to_datetime('01/01/21')
 
-# Calculates the number of weeks
-weeks = ceil(days/7)
+# Creates an empty date list and a counter
+date_list = []
+counter = 0
 
-# Looking at it
-weeks
+# For each row in the sheet
+for row in ws.rows:
+    
+    # For each cell in a given row
+    for cell in row:
+        
+        # Try converting part of said cell to a date time object
+        try:
+            
+            temp_date = pd.to_datetime(str(cell.value)[-8:])
+            
+        # If not possible, move on
+        except:
+            
+            pass
+        
+        # If the temporary date is greater than the max temporary date
+        if temp_date > max_temp_date:
+            
+            # Max temporary date receives temporary date
+            max_temp_date = temp_date
+            
+            # Adds max temporary date to date list
+            date_list.append(max_temp_date)
+        
+    # Updates counter
+    counter += 1
+    
+    # If counter is greater or equal to one, i.e if on second row of sheet
+    if counter >= 1:
+
+        # Interrupt loop
+        break
+
+# Close the workbook after reading
+wb.close()
 
 # Calls function
-final_report_2, date_list, date_list_2 = forecast_col_name(weeks, 'Units Forecast ', starting_date, final_report)
-final_report_2, date_list, date_list_2 = forecast_col_name(weeks, 'Sales Forecast ', starting_date, final_report)
+final_report_2 = forecast_col_name(final_report, date_list, 'Units Forecast ')
+final_report_2 = forecast_col_name(final_report, date_list, 'Sales Forecast ')
 
-# Setting date to be the first date of the list, i.e, date when report is being run.
+# Stores first date in a variable
 adate = date_list[0]
 
 # Creates a date string to access column
@@ -940,20 +1035,23 @@ col_name = 'EDI Units ' + new_date
 # Finds and stores index of given part number
 idx = final_report_2.loc[(final_report_2['Part#'] == '807311R')].index[0]
 
-# Uses index and column name to pass an NaN value to cell
-final_report_2.at[idx, col_name] = np.nan
+# If value is not zero
+if final_report_2.at[idx, col_name] != 0:
 
-# Creates a copy of the dataframe with only numeric values
-df_interpolate = final_report_2[final_report_2.columns[2:]]
+    # Uses index and column name to pass an NaN value to cell
+    final_report_2.at[idx, col_name] = np.nan
 
-# Making sure columns are of the float type
-df_interpolate = to_float(df_interpolate)
-
-# Applies linear interpolation to the only NaN in the dataframe
-df_interpolate.interpolate(method ='linear', axis = 1, limit = 1, limit_direction ='forward', inplace = True)
-
-# Copy the value interpolated into the original dataframe
-final_report_2.at[idx, col_name] = df_interpolate.at[idx, col_name]
+    # Creates a copy of the dataframe with only numeric values
+    df_interpolate = final_report_2[final_report_2.columns[2:]]
+    
+    # Making sure columns are of the float type
+    df_interpolate = to_float(df_interpolate)
+    
+    # Applies linear interpolation to the only NaN in the dataframe
+    df_interpolate.interpolate(method ='linear', axis = 1, limit = 1, limit_direction ='forward', inplace = True)
+    
+    # Copy the value interpolated into the original dataframe
+    final_report_2.at[idx, col_name] = df_interpolate.at[idx, col_name]
 
 # Storing date for last actual volumes
 last_actual = pd.to_datetime(actuals[-1][-10:])
@@ -1132,8 +1230,6 @@ for col1 in avg_col_names:
             # Weekly average column receives monthly average column divided by the number of weeks of said month
             final_report_2[col2] = final_report_2[col1]/numberofweeks
 
-# Starts a variable
-remainder = 0
 
 # For each date in the date_list
 for d in date_list:
@@ -1142,8 +1238,7 @@ for d in date_list:
     dayss = same_month_days(d)
 
     # Calculates a ratio of how many days are from said month versus how many days are not from the same month
-    # and adds a remainder to it, in case there are days from previous week that belong to this month
-    ratio = dayss/5 + remainder
+    ratio = dayss/5
     
     # Creates column name
     weekly_ratio_col_name = 'WeeklyRatio ' + str(d)[:-9]
@@ -1151,41 +1246,286 @@ for d in date_list:
     # Creates and inserts new column, named after column name, into dataframe and populates it with the calculated ratio
     final_report_2.insert(len(final_report_2.columns), weekly_ratio_col_name, np.full((1, len(final_report_2)), ratio)[0], True)
     
-    # Re-starts remainder
-    remainder = 0
+        
+
+# Reading file
+ihs = pd.read_excel(filenames[2], engine='openpyxl', usecols = 'F, M:Z', sheet_name='Detailed Forecast - Base Case', skiprows = 2)
+
+# Renaming column so that it matches column from final_report_2
+ihs.rename(columns={ihs.columns[1]: 'Part#'}, inplace=True)
+
+# Storing year for both current and following year
+current_year = str(adate.year)
+next_year = str((adate + DateOffset(years = 1)).year)
+
+# Creates list and stores first two columns in it
+ihs_cols = [ihs.columns[0], ihs.columns[1]]
+
+# For each column in the dataframe
+for c in ihs.columns:
     
-    # If ratio is smaller than one, i.e if at least one day of said week does not belong to month of said week
-    if ratio < 1:
+    # If either current or next year are part of a column's name
+    if current_year in c or next_year in c:
         
-        # Calculate a remainder ratio
-        remainder = 1 - ratio
+        # Add column name to list
+        ihs_cols.append(c)
+
+# Keeps only relevant columns in the dataframe
+ihs = ihs[ihs_cols]
+
+# Creates empty list to store column names
+ihs_col_names = []
+
+# For each month of the year
+for m in range(1, 13):
+
+    # If it is a single unit month
+    if len(str(m)) == 1:
         
+        # Add a zero prior to said digit and stores it as a string
+        ms = str(0) + str(m)
+        
+    # Otherwise
+    else:
+        
+        # Just stores it as a string
+        ms = str(m)
+    
+    # Creates name for a column and adds it to list
+    ihs_col_names.append('IHS ' + current_year + '-' + ms)
+    ihs_col_names.append('IHS ' + next_year + '-' + ms)
+    
+# Sorts list and stores it
+ihs_col_names = sorted(ihs_col_names)
+
+# Creates list with percentages to distribute revenue across months of the year
+rev_rates = [0.08203, 0.0799, 0.094, 0.07801, 0.08239, 0.0864, 0.0818, 0.0927, 0.0838, 0.0909, 0.0772, 0.0709,
+            0.08203, 0.0799, 0.094, 0.07801, 0.08239, 0.0864, 0.0818, 0.0927, 0.0838, 0.0909, 0.0772, 0.0709]
+
+# From zero to 23, i.e each month of two years
+for i in range(24):
+
+    # Converts column name to date and stores it
+    year = str(pd.to_datetime(ihs_col_names[i][-7:]).year)
+    
+    # If year matches current year
+    if year == current_year:
+        
+        # Creates and inserts new column, named after column name, into dataframe and populates it with the calculated values
+        # from the current year's column
+        ihs.insert(len(ihs.columns), ihs_col_names[i], ihs[ihs.columns[2]] * np.full((1, len(ihs)), rev_rates[i])[0], True)
+        
+    # Otherwise
+    else:
+        
+        # Creates and inserts new column, named after column name, into dataframe and populates it with the calculated values
+        # from the next year's column
+        ihs.insert(len(ihs.columns), ihs_col_names[i], ihs[ihs.columns[3]] * np.full((1, len(ihs)), rev_rates[i])[0], True)
+    
+# Drops columns with yearly values
+ihs.drop([ihs.columns[2], ihs.columns[3]], axis = 1, inplace = True)
+
+# Groups by first two columns
+ihs = ihs.groupby(['Channel', 'Part#'], as_index = False).sum()
+
+# Creates sets of conditions
+ihs_am_conditions = (ihs['Channel'] == 'Bulk')|(ihs['Channel'] == 'Kits')
+ihs_rings_condition = ihs['Channel'] == 'Rings'
+
+# Replaces channels Bulk and Kits by Aftermarket.
+ihs['Channel'] = np.where(ihs_am_conditions, 'Aftermarket', ihs['Channel'])
+ihs['Channel'] = np.where(ihs_rings_condition, 'Rings.300', ihs['Channel'])
+
+# Casting column to string
+ihs['Part#'] = ihs['Part#'].astype(str)
+
+# Finds intersection between IHS OE and OE MEXICO
+ihsoe_to_oemex = list(set(ihs[ihs['Channel'] == 'OE']['Part#']) & set(final_report_2[final_report_2['Channel'] == 'OE MEXICO']['Part#']))
+
+# Finds intersection between IHS OES and OES MEXICO
+ihsoes_to_oesmex = list(set(ihs[ihs['Channel'] == 'OES']['Part#']) & set(final_report_2[final_report_2['Channel'] == 'OES MEXICO']['Part#']))
+
+# Finds intersection between IHS OES and OE MEXICO
+ihsoes_to_oemex = list(set(ihs[ihs['Channel'] == 'OES']['Part#']) & set(final_report_2[final_report_2['Channel'] == 'OE MEXICO']['Part#']))
+
+# Finds intersection between IHS OE and OES
+ihsoe_to_oes = list(set(ihs[ihs['Channel'] == 'OE']['Part#']) & set(final_report_2[final_report_2['Channel'] == 'OES']['Part#']))
+
+# Updates channels
+for p1 in ihsoe_to_oemex:
+
+    ihs['Channel'] = np.where(ihs['Part#'] == p1, 'OE MEXICO', ihs['Channel'])
+    
+for p2 in ihsoes_to_oesmex:
+
+    ihs['Channel'] = np.where(ihs['Part#'] == p2, 'OES MEXICO', ihs['Channel'])
+    
+for p3 in ihsoes_to_oemex:
+
+    ihs['Channel'] = np.where(ihs['Part#'] == p3, 'OE MEXICO', ihs['Channel'])
+    
+for p4 in ihsoe_to_oes:
+
+    ihs['Channel'] = np.where(ihs['Part#'] == p4, 'OES', ihs['Channel'])
+    
+# Removes rows that only have zeros on forecast columns
+ihs = ihs.loc[~(ihs[ihs.columns[2:]] == 0).all(axis=1)]
+
+# Re-sets index
+ihs.reset_index(drop = True, inplace = True)
+
+# Merges both data frames
+final_report_2 = final_report_2.merge(ihs, how = 'outer', on = ['Channel', 'Part#'])
+
+# Replaces NaNs with zeros
+final_report_2.fillna(0, inplace = True)
+
+# Creates empty list to store created weekly column names
+weekly_ihs_col_names = []
+
+# For each date in the date list
+for d in date_list:
+    
+    # Creates a column name using date and adds it to list
+    weekly_ihs_col_names.append('IHS ' + str(d)[:-9])
+    
+# For each column in the list of weekly column names
+for c in weekly_ihs_col_names:
+    
+    # Insert it into data frame and fill with zeros
+    final_report_2.insert(len(final_report_2.columns), c, 0, True)
+    
+# Creates empty lists for both weekly and monthly columns
+ihs_monthly_cols = []
+ihs_weekly_cols = []
+
+# For each column in the list of columns
+for col in final_report_2.columns:
+    
+    # If IHS is part of the name of said column
+    if 'IHS' in col:
+        
+        # And if the length of the column name equals 11
+        if len(col) == 11:
+            
+            # Adds it to the monthly columns list
+            ihs_monthly_cols.append(col)
+            
+        # Otherwise
+        else:
+            
+            # Adds it to the weekly list
+            ihs_weekly_cols.append(col)
+            
+# For each column name in the monthly columns list
+for cn1 in ihs_monthly_cols:
+    
+    # And for each column name in the weekly columns list
+    for cn2 in ihs_weekly_cols:
+        
+        # Store date from column name one and two as date
+        d1 = pd.to_datetime(cn1[-7:])
+        d2 = pd.to_datetime(cn2[-10:])
+        
+        # If on both year and month
+        condition1 = relativedelta(d1.replace(day=1), d2.replace(day=1)).years == 0
+        condition2 = relativedelta(d1.replace(day=1), d2.replace(day=1)).months == 0
+        
+        if condition1 and condition2:
+
+            # Weekly column receives value from monthy column divided by the number of weeks in a given month
+            final_report_2[cn2] = final_report_2[cn1]/num_of_weeks(d1)
+            
 # Splitting dataframe by channels
 df_list = split_dfs(final_report_2, channels)
 
 # Creates a list of fill rate options
 fill_rate_options = ['Current', '+1', '+2', '+3', '+4', '+5']
 
+# Stores standard settings
+fill_rate_period_aftermarket = '+1'
+fill_rate_period_international = 'Current'
+fill_rate_period_oe = '+2'
+fill_rate_period_oe_mex = 'Current'
+fill_rate_period_oes = '+2'
+fill_rate_period_oes_mex = 'Current'
+fill_rate_period_rings = '+1'
+
+# Prints settings
+print('')
+print('='*100)
+print('')
+print('The current settings for when to use IHS or six-month averages are as follow:')
+print('')
+print('Aftermarket: +1')
+print('Intercompany/International: Current')
+print('OE: +2')
+print('OE Mexico: Current')
+print('OES: +2')
+print('OES Mexico: Current')
+print('Rings: +1')
+print('')
+print('='*100)
+
+# Starts a counter, which will be used to force user to input valid entries
+counter = 0
+
+# Gets user's input
+answer = str(input("Type 'yes' if you would like to change it. Otherwise, type 'no': ")).lower()
+
+# Repeats loop until user picks a valid entry
+while counter == 0:
+
+    # If input is valid, counter is updated and breaks the loop
+    if answer == 'yes' or answer == 'no':
+        
+        counter += 1
+        
+    # Otherwise, it keeps asking for a valid input
+    else:
+        
+        print("You typed neither 'yes' nor 'no'.")
+        answer = str(input("Type 'yes' if you would like to change it. Otherwise, type 'no': ")).lower()
+
+# If answer is yes
+if answer == 'yes':
+    
+    # Displays settings options
+    print('')
+    print("Your options are: 'Current', '+1', '+2', '+3', '+4', '+5'")
+    print('')
+    print('Make your selection:')
+    
+    # Gets settings from user
+    fill_rate_period_aftermarket = selections('Aftermarket')
+    fill_rate_period_international = selections('Intercompany/International')
+    fill_rate_period_oe = selections('OE')
+    fill_rate_period_oe_mex = selections('OE Mexico')
+    fill_rate_period_oes = selections('OES')
+    fill_rate_period_oes_mex = selections('OES Mexico')
+    fill_rate_period_rings = selections('Rings')
+    
+    
 # Aftermarket
-df_list[0] = forecastfunc(df_list[0], fill_rate_options, date_list, fill_rate_choice, '+1', frconversion)
+df_list[0] = forecastfunc(df_list[0], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_aftermarket, frconversion, conditionsandchoices)
 
 # Intercompany/International
-df_list[1] = forecastfunc(df_list[1], fill_rate_options, date_list, fill_rate_choice, 'Current', frconversion)
+df_list[1] = forecastfunc(df_list[1], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_international, frconversion, conditionsandchoices)
 
 # OE
-df_list[2] = forecastfunc(df_list[2], fill_rate_options, date_list, fill_rate_choice, '+2', frconversion)
+df_list[2] = forecastfunc(df_list[2], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_oe, frconversion, conditionsandchoices)
 
 # OE Mexico
-df_list[3] = forecastfunc(df_list[3], fill_rate_options, date_list, fill_rate_choice, 'Current', frconversion)
+df_list[3] = forecastfunc(df_list[3], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_oe_mex, frconversion, conditionsandchoices)
 
 # OES
-df_list[4] = forecastfunc(df_list[4], fill_rate_options, date_list, fill_rate_choice, '+2', frconversion)
+df_list[4] = forecastfunc(df_list[4], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_oes, frconversion, conditionsandchoices)
 
 # OES Mexico
-df_list[5] = forecastfunc(df_list[5], fill_rate_options, date_list, fill_rate_choice, 'Current', frconversion)
+df_list[5] = forecastfunc(df_list[5], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_oes_mex, frconversion, conditionsandchoices)
 
 # Rings
-df_list[6] = forecastfunc(df_list[6], fill_rate_options, date_list, fill_rate_choice, '+1', frconversion)
+df_list[6] = forecastfunc(df_list[6], fill_rate_options, date_list, fill_rate_choice, fill_rate_period_rings, frconversion, conditionsandchoices)
 
 # Creates an empty dataframe.
 final_report_2 = pd.DataFrame()
@@ -1248,9 +1588,15 @@ target_date = current_date.replace(day=1)
 sf_target_col = 'Sales Forecast ' + str(target_date)[:-12]
 uf_target_col = 'Units Forecast ' + str(target_date)[:-12]
 
-# Updates first month of forecasts by adding to it anything that has already been sold
-monthly_forecasts[sf_target_col] = monthly_forecasts[sf_target_col] + final_report_2[as_target_col]
-monthly_forecasts[uf_target_col] = monthly_forecasts[uf_target_col] + final_report_2[au_target_col]
+try:
+
+    # Updates first month of forecasts by adding to it anything that has already been sold
+    monthly_forecasts[sf_target_col] = monthly_forecasts[sf_target_col] + final_report_2[as_target_col]
+    monthly_forecasts[uf_target_col] = monthly_forecasts[uf_target_col] + final_report_2[au_target_col]
+    
+except KeyError:
+    
+    print('KeyError')
 
 # Creates list of unique channels for dataframes
 channels = final_report_2[final_report_2.columns[0]].unique()
@@ -1367,13 +1713,151 @@ datestr = str(date_list[0])[:-9]
 file_name = 'Channel_summary_' + datestr + '.xlsx'
 
 # Exporting to excel
-channel_summary.to_excel(file_name, float_format = '%.2f')
+channel_summary.to_excel(file_name, float_format = '%.2f', index = False)
 
 # Creates file name
 file_name = 'The_full_final_report_' + datestr + '.xlsx'
 
 # Exporting to excel
-final_report.to_excel(file_name, float_format = '%.2f')
+final_report.to_excel(file_name, float_format = '%.2f', index = False)
+
+# Creating and storing conditions
+cond1 = final_report['Part#'] == '807311R'
+cond2 = final_report['Part#'] == '808052R'
+cond3 = final_report['Part#'] == '808103R'
+cond4 = final_report['Part#'] == '807373'
+cond5 = final_report['Part#'] == '808105'
+
+# Using conditions to filter dataframe
+frv = final_report[cond1 | cond2 | cond3 | cond4 | cond5]
+
+# Re-setting index
+frv.reset_index(drop = True, inplace = True)
+
+# Creating column to group and concatenate by
+frv['Description'] = 'FRV'
+
+# Storing column names
+units_fcst_col = monthly_units_forecast_list[0]
+sales_fcst_col = monthly_sales_forecast_list[0]
+sales_col = 'Actual Sales ' + str(adate.replace(day=1))[:-9]
+units_col = 'Actual Units ' + str(adate.replace(day=1))[:-9]
+
+# Keeping only subset of columns
+frv = frv[['Description', units_fcst_col, sales_fcst_col, units_col, sales_col]]
+
+# Grouping by
+frv = frv.groupby('Description', as_index = False).sum()
+
+# Creating new columns
+frv['RemaningUnits'] = frv[frv.columns[1]] - frv[frv.columns[3]]
+frv['RemaningDollars'] = frv[frv.columns[2]] - frv[frv.columns[4]]
+frv['Remaning%U'] = frv[frv.columns[5]]/frv[frv.columns[1]]
+frv['Remaning%D'] = frv[frv.columns[5]]/frv[frv.columns[1]]
+
+# Removing first column
+frv = frv[frv.columns[1:]]
+
+# Splitting dataframe
+frv_shipped = frv[[frv.columns[2], frv.columns[3]]]
+frv_fcst = frv[frv.columns[0:2]]
+frv_remaining = frv[[frv.columns[4], frv.columns[5]]]
+frv_remaining_p = frv[[frv.columns[-1], frv.columns[-2]]]
+
+# Renaming columns
+frv_shipped.rename(columns = {frv_shipped.columns[0]: 'Units', frv_shipped.columns[1]: 'Dollars'}, inplace = True)
+frv_fcst.rename(columns = {frv_fcst.columns[0]: 'Units', frv_fcst.columns[1]: 'Dollars'}, inplace = True)
+frv_remaining.rename(columns = {frv_remaining.columns[0]: 'Units', frv_remaining.columns[1]: 'Dollars'}, inplace = True)
+frv_remaining_p.rename(columns = {frv_remaining_p.columns[0]: 'Units', frv_remaining_p.columns[1]: 'Dollars'}, inplace = True)
+
+# Concatenating dataframes
+frv = pd.concat([frv_shipped, frv_fcst], ignore_index = True)
+frv = pd.concat([frv, frv_remaining], ignore_index = True)
+frv = pd.concat([frv, frv_remaining_p], ignore_index = True)
+
+# Labeling indexes
+frv.index = ['Shipped', 'FCST', 'Remaining', 'Remaining%']
+
+# Creates file name
+file_name = 'FRV_' + datestr + '.xlsx'
+
+# Exporting to excel
+frv.to_excel(file_name, float_format = '%.2f')
+
+# Reading sheet into dataframe
+descriptions = pd.read_excel(filenames[1], engine='openpyxl', sheet_name='3YearSales',
+                    usecols='H:I', skiprows = 2)
+
+# Removing first couple of rows
+descriptions = descriptions[2:]
+
+# Re-setting index
+descriptions.reset_index(drop = True, inplace = True)
+
+# Dropping duplicates
+descriptions.drop_duplicates(inplace = True)
+
+# Reading last forecast file
+last_forecast = pd.read_excel(filenames[4], engine='openpyxl')
+
+# Creates an empty dataframe
+top_5 = pd.DataFrame()
+
+# Storing name of column
+current_sales_forecast = 'Sales Forecast ' + str(date_list[0].replace(day = 1))[:-12]
+
+# Passing Part# column to new dataframe
+top_5['Part#'] = final_report['Part#']
+
+# Creating a description column on new dataframe to receive descriptions
+top_5['Description'] = ''
+
+# Calling function to update new dataframe
+top_5 = vlookup(top_5, 'Part#', 'Description', descriptions, 'Part #', 'Part Description')
+
+# Merging
+top_5 = top_5.merge(final_report[['Part#', current_sales_forecast]], how = 'outer', on = 'Part#')
+
+# Re-naming
+top_5.rename(columns = {current_sales_forecast: 'Current ' + current_sales_forecast}, inplace=True)
+
+# Merging
+top_5 = top_5.merge(last_forecast[['Part#', current_sales_forecast]], how = 'outer', on = 'Part#')
+
+# Re-naming
+top_5.rename(columns = {current_sales_forecast: 'Last ' + current_sales_forecast}, inplace=True)
+
+# Grouping by description and Part#
+top_5 = top_5.groupby(['Part#', 'Description'], as_index = False).sum()
+
+# Calculating the difference between the two
+top_5['Last VS Current'] = top_5[top_5.columns[2]] - top_5[top_5.columns[3]]
+
+# Calculating the relative difference
+top_5['Last VS Current %'] = top_5['Last VS Current'] / top_5[top_5.columns[2]]
+
+# Filling NaNs and replacing infinite values
+top_5.fillna(0, inplace = True)
+top_5.replace([np.inf, -np.inf], 0, inplace=True)
+
+# Finding absolute value
+top_5['Absolute'] = top_5['Last VS Current'].abs()
+
+# Sorting rows by absolute values
+top_5.sort_values(by = 'Absolute', ignore_index = True, inplace = True, ascending = False)
+
+# Re-arranging columns and dropping absolute values
+top_5 = top_5[['Description', 'Part#', top_5.columns[2], top_5.columns[3], 'Last VS Current', 'Last VS Current %']]
+
+# Storing first 10 rows
+top_5 = top_5.head(10)
+
+# Creates file name
+file_name = 'Top_5_' + datestr + '.xlsx'
+
+# Exporting to excel
+top_5.to_excel(file_name, float_format = '%.2f', index = False)
+
 
 end_time = time.time()
 time_elapsed = end_time - start_time
