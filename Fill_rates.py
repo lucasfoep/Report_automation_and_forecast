@@ -23,7 +23,7 @@ df2 = pd.DataFrame()
 
 # Iterates all files, except for the last one
 for i in range(len(filenames) - 1):
-
+    
     # Imports spreadsheet into dataframe.
     df1 = pd.read_excel(filenames[i], engine='openpyxl', sheet_name='ProjectionsPlus', usecols='B, D, J, K, Y:AJ')
     
@@ -94,7 +94,7 @@ df3 = labels.merge(units, how = 'left', on = 'temp_index')
 df3.drop('temp_index', axis=1, inplace = True)
 
 # Imports spreadsheet into dataframe.
-df4 = pd.read_excel(filenames[-1:][0], engine='openpyxl', sheet_name='3YearSales', usecols='H, I, AD:AO, ED:EO, ID:IO',
+df4 = pd.read_excel(filenames[-1], engine='openpyxl', sheet_name='3YearSales', usecols='H, I, AD:AO, ED:EO, ID:IO',
                     skiprows = 2)
 
 # Renaming Part # column so that it matches df3's
@@ -104,7 +104,7 @@ df4.rename(columns={'Part #':'Part#'}, inplace = True)
 df4 = df4[2:]
 
 # Reads column as dataframe to get initial year. DO THIS WITH OPENPYXL, READ ONLY THE ONE CELL.
-starting_year = pd.read_excel(filenames[-1:][0], engine='openpyxl', sheet_name='3YearSales', usecols='AD', skiprows = 1)
+starting_year = pd.read_excel(filenames[-1], engine='openpyxl', sheet_name='3YearSales', usecols='AD', skiprows = 1)
 
 # Keeping only the starting year
 starting_year = starting_year.columns[0]
@@ -142,7 +142,7 @@ df4['Location'] = '-'
 df5 = pd.concat([df3, df4], ignore_index=True)
 
 # Replacing NAs
-df5.fillna('-', inplace=True)
+df5.fillna(0, inplace=True)
 
 # Sorting by part number
 df5.sort_values(df5.columns[2], inplace=True)
@@ -192,8 +192,9 @@ cols_to_drop_2 = []
 # Iterates through columns from df5
 for d in range(4, len(df5.columns)):
     
-    # If column from df5 is greater than or equal to first column to drop
-    if df5.columns[d] >= first_col_to_drop:
+    # If there is a col to be dropped and column from df5 is greater than or
+    # equal to first column to drop
+    if len(str(first_col_to_drop)) > 0 and df5.columns[d] >= first_col_to_drop:
         
         # Add column from df5 to list of columns to be dropped
         cols_to_drop_2.append(df5.columns[d])
@@ -255,7 +256,7 @@ for z in range(len(part_numbers)):
                 # Inputs actual/projected to same row but at an FR column
                 temp_df[temp_df.columns[x + fr_cols]][idx + f + 1] = actual/projected
                 
-    
+
     # Concatenates df6 and df5.
     df6 = pd.concat([df6, temp_df], ignore_index=True)
     
@@ -401,7 +402,7 @@ for part_number in part_numbers:
     
     # Calculates the mean for each column of said dataframe
     temp_series = temp_df1[[temp_df1.columns[1], temp_df1.columns[2], temp_df1.columns[3], temp_df1.columns[4], temp_df1.columns[5],
-                  temp_df1.columns[6]]].mean(skipna = True)
+                  temp_df1.columns[6]]].median(skipna = True)
 
     # Creates a temporary dictionary to hold means
     temp_dict = temp_series.to_dict()
@@ -428,21 +429,11 @@ df8.sort_values(df8.columns[0], inplace=True)
 df8.reset_index(drop = True, inplace = True)
 
 # Exporting to Excel.
-df8.to_excel('Mean_fill_rates.xlsx', float_format="%.2f")
+file_name = 'Median_fill_rates_' + str(current_date)[:-9] + '.xlsx'
+
+df8.to_excel(file_name, float_format="%.2f")
 
 # Stores end time and calculates time elapsed
 end_time = time.time()
 time_elapsed = end_time - start_time
 print(f'Execution time was {time_elapsed}')
-
-
-
-
-
-
-
-
-
-
-
-    
